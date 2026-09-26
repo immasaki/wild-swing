@@ -357,7 +357,7 @@ const STAGES=[
 {w:5,name:'星降る回廊',segs:17,diff:.9},
 {w:5,name:'月光神殿の頂',segs:20,diff:.95},
 ];
-const TARGETS=[8500,17000,23000,15500,29000,30500,28500,20500,37500,27500,39000,45000,28000,38000,29500,33000,40500,50500];
+const TARGETS=[8500,17000,23000,15500,27000,30500,26500,20500,32000,27500,32000,41500,28000,36000,27500,29000,40500,50500];
 STAGES.forEach((s,i)=>{s.seed=1301+i*977; s.target=TARGETS[i]});
 
 /* ================= AUDIO ================= */
@@ -633,7 +633,8 @@ function mkAnchor(x,y,z,mv,w){const th=TH[w];const ry=Math.atan2(cdx(z),1);
  const a={x,y,z,bx:x,mv,ry,w,ri:pools.ring.add(mtx(x,y,z,1,1,1,0,ry,0),th.ring),ci:pools.core.add(mtx(x,y,z),0xfff6d0),bi:pools.beam.add(mtx(x,y-1.4,z,1,y-1.4,1),th.beam),gi:glow.add(x,y,z,th.ring,7,.7)};
  objs.anchors.push(a);return a}
 function mkCoin(x,y,z){objs.coins.push({x,y,z,i:pools.coin.add(mtx(x,y,z)),got:0})}
-function mkGem(x,y,z,w){const m=new T3.Mesh(new T3.OctahedronGeometry(.95,0),wm(w).gem);m.position.set(x,y,z);m.scale.set(1,1.35,1);scene.add(m);
+const gemBeamMat=new T3.MeshBasicMaterial({color:0xff7ad9,transparent:true,opacity:.35,blending:T3.AdditiveBlending,depthWrite:false});const gemBeamGeo=new T3.CylinderGeometry(.35,.35,10,8,1,true);
+function mkGem(x,y,z,w){const m=new T3.Mesh(new T3.OctahedronGeometry(.95,0),wm(w).gem);m.position.set(x,y,z);m.scale.set(1,1.35,1);scene.add(m);const bm=new T3.Mesh(gemBeamGeo,gemBeamMat);bm.scale.set(1,1/1.35,1);m.add(bm);
  const g={x,y,z,m,got:0,gi:glow.add(x,y,z,0xff5ad0,12,1.2),idx:gen.gemIdx++};objs.gems.push(g);objs.meshes.push({z,o:m});return g}
 function mkOrb(kind,x,y,z,mo){const r=kind==='spike'?1.05:kind==='fire'?1.25:.95;const pool=pools[kind];const col=kind==='spike'?TH[gen.world].hz:null;
  const o={kind,x,y,z,bx:x,by:y,bz:z,r,mo,alive:1,pi:pool.add(mtx(x,y,z,r),col),gi:kind==='spike'?-1:glow.add(x,y,z,kind==='fire'?0xff7a20:0x60e8ff,9,1.3)};objs.orbs.push(o);return o}
@@ -749,27 +750,33 @@ const SW={0:['line','zig','split','orbs','pillars','moving'],1:['line','zig','sp
 const GM={0:['zip','bounce','wheel','draft','hoop'],1:['zip','bounce','wheel','draft','hoop'],2:['zip','bounce','wheel','draft','hoop'],3:['draft','draft','zip','bounce','wheel','hoop'],4:['zip','zip','bounce','wheel','draft','hoop'],5:['wheel','zip','bounce','draft','hoop']};
 const sp=g=>{if(g.near){g.near=0;return 20+g.r()*2}return g.gap+g.r()*4};
 function A(g,z,dx,y,mv){return mkAnchor(cx(z)+dx,y,z,mv,g.world)}
-function arcC(a,n=5,L=15,a0=-.55,a1=.85){for(let i=0;i<n;i++){const t=a0+(a1-a0)*i/(n-1);mkCoin(a.x,a.y-L*Math.cos(t),a.z+L*Math.sin(t))}}
+// Pickups sit on the arc the hero really swings along: the rope settles at min(anchor height-3, 17) and the swing follows the course direction
+const ltOf=a=>Math.min(a.y-3,17);
+function arcP(a,phi,lat=0,dr=0){const L=ltOf(a)+dr,h=L*Math.sin(phi),fx=cdx(a.z),n=Math.hypot(fx,1),ux=fx/n,uz=1/n;return{x:a.x+ux*h-uz*lat,y:a.y-L*Math.cos(phi),z:a.z+uz*h+ux*lat}}
+function arcC(a,n=5,dr=0,a0=-.55,a1=.85){for(let i=0;i<n;i++){const q=arcP(a,a0+(a1-a0)*i/(n-1),0,dr);mkCoin(q.x,q.y,q.z)}}
+function rewardAt(g,q){reward(g,q.x,q.y,q.z)}
+// treasures sit on the real rope arc, lifted a little so the hero's body passes through them
+const gemArc=(a,phi,lat=0)=>{const q=arcP(a,phi,lat,0);q.y+=1.5;return q};
 function lineC(x1,y1,z1,x2,y2,z2,n){for(let i=0;i<n;i++){const t=i/(n-1);mkCoin(lerp(x1,x2,t),lerp(y1,y2,t),lerp(z1,z2,t))}}
 function reward(g,x,y,z){if(g.gemNow){g.gemNow=0;mkGem(x,y,z,g.world)}else{for(let k=0;k<5;k++){const a=k/5*TAU;mkCoin(x+Math.cos(a)*1.4,y+Math.sin(a)*1.4,z)}}}
 function orbKind(w){return w===2?'fire':(w===3||w===5)?'spark':'spike'}
 const SEG={
- line(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*8,19+g.r()*4);arcC(a);if(i===1)reward(g,a.x,a.y+5,a.z+15);g.z=z}},
- zig(g){let s=g.r()<.5?1:-1;for(let i=0;i<4;i++){const z=g.z+sp(g)*.88;const a=A(g,z,i===3?0:s*4.5,20+g.r()*3);arcC(a,4);if(i===2)reward(g,a.x+s*5,a.y-10,a.z+2);s=-s;g.z=z}},
+ line(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*8,19+g.r()*4);arcC(a);if(i===1)rewardAt(g,gemArc(a,.3));g.z=z}},
+ zig(g){let s=g.r()<.5?1:-1;for(let i=0;i<4;i++){const z=g.z+sp(g)*.88;const a=A(g,z,i===3?0:s*4.5,20+g.r()*3);arcC(a,4);if(i===2)rewardAt(g,gemArc(a,.3,s*1.2));s=-s;g.z=z}},
  split(g){const z=g.z+sp(g);const a=A(g,z,0,21);arcC(a,4);const z2=z+sp(g);const s=g.r()<.5?1:-1;const risky=A(g,z2,s*7.5,23),safe=A(g,z2,-s*7.5,20);arcC(safe,5);
-  mkOrb(orbKind(g.world),risky.x,11,risky.z+8,{t:'v',amp:5,sp:1.6+g.diff,ph:g.r()*6});reward(g,risky.x,risky.y-8,risky.z+13);const z3=z2+sp(g);arcC(A(g,z3,0,21),4);g.z=z3},
+  mkOrb(orbKind(g.world),risky.x,11,risky.z+8,{t:'v',amp:5,sp:1.6+g.diff,ph:g.r()*6});rewardAt(g,gemArc(risky,.35));const z3=z2+sp(g);arcC(A(g,z3,0,21),4);g.z=z3},
  orbs(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*6,20+g.r()*3);arcC(a,4);if(i<2){const zm=z+15;const lat=g.r()<.5;
-   mkOrb(orbKind(g.world),a.x,lat?12:11,zm,lat?{t:'l',amp:8,sp:1.2+g.diff*1.2,ph:g.r()*6}:{t:'v',amp:6,sp:1.4+g.diff*1.3,ph:g.r()*6});if(i===0)reward(g,a.x,5.5,zm+2)}g.z=z}},
- pillars(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,3,15,-.55,.2);if(i<2){const zm=z+sp(g)*.55;const off=(g.r()<.5?-1:1)*2.2;mkPillar(cx(zm)+off,zm,2.3+g.diff,g.world);
-   const side=-Math.sign(off);lineC(cx(zm)+side*5,12,zm-6,cx(zm)+side*5,13,zm+6,3);if(i===1)reward(g,cx(zm)-side*3.8+off,15,zm-4)}g.z=z}},
- moving(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,0,21,i<2?{amp:4+g.diff*2.5,sp:.8+g.r()*.6,ph:g.r()*6}:null);lineC(a.x,7,z-3,a.x,7,z+3,3);if(i===1)reward(g,a.x+7,a.y-9,z+6);g.z=z}},
- hoop(g){const z=g.z+sp(g);const a=A(g,z,0,21);arcC(a,3,15,-.55,.1);const hz=z+13.5,hx=cx(hz),hy=10.2;const dir=new V3(cdx(hz),0,1).normalize();dir.y=.34;dir.normalize();mkHoop(hx,hy,hz,dir,g.world);
-  const v=dir.clone().multiplyScalar(44);for(let k=1;k<=6;k++){const t=k*.14;mkCoin(hx+v.x*t,hy+v.y*t-15*t*t,hz+v.z*t)}reward(g,hx+v.x*.95,hy+v.y*.95-15*.9+2.5,hz+v.z*.95);
+   mkOrb(orbKind(g.world),a.x,lat?12:11,zm,lat?{t:'l',amp:8,sp:1.2+g.diff*1.2,ph:g.r()*6}:{t:'v',amp:6,sp:1.4+g.diff*1.3,ph:g.r()*6});if(i===0)rewardAt(g,gemArc(a,.3))}g.z=z}},
+ pillars(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,3,0,-.55,.2);if(i<2){const zm=z+sp(g)*.55;const off=(g.r()<.5?-1:1)*2.2;mkPillar(cx(zm)+off,zm,2.3+g.diff,g.world);
+   const side=-Math.sign(off);lineC(cx(zm)+side*5,12,zm-6,cx(zm)+side*5,13,zm+6,3);if(i===1){const q=gemArc(a,Math.asin(Math.min(.95,(zm-4-z)/ltOf(a))));q.x=cx(zm)+off-side*3.8;rewardAt(g,q)}}g.z=z}},
+ moving(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,0,21,i<2?{amp:4+g.diff*2.5,sp:.8+g.r()*.6,ph:g.r()*6}:null);arcC(a,3,0,-.2,.2);if(i===2)rewardAt(g,gemArc(a,.3));g.z=z}},
+ hoop(g){const z=g.z+sp(g);const a=A(g,z,0,21);arcC(a,3,0,-.55,.1);const hz=z+13.5,hx=cx(hz),hy=10.2;const dir=new V3(cdx(hz),0,1).normalize();dir.y=.34;dir.normalize();mkHoop(hx,hy,hz,dir,g.world);
+  const v=dir.clone().multiplyScalar(44);for(let k=1;k<=6;k++){const t=k*.14;mkCoin(hx+v.x*t,hy+v.y*t-15*t*t,hz+v.z*t)}reward(g,hx+v.x*.4,hy+v.y*.4-15*.16,hz+v.z*.4);
   const z2=hz+36;arcC(A(g,z2,0,23),4);g.z=z2},
- geyser(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,5);mkGeyser(a.x,a.z+1,3.4,i*1.15+g.r());if(i===1)reward(g,a.x,12,a.z+1);g.z=z}},
- fire(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,4);if(i<2){const zm=z+15;mkOrb('fire',cx(zm),2,zm,{t:'arc',dir:1,sp:.36+g.diff*.12,ph:g.r()});mkOrb('fire',cx(zm),2,zm+3,{t:'arc',dir:-1,sp:.36+g.diff*.12,ph:g.r()});if(i===0)reward(g,cx(zm),19,zm+1.5)}g.z=z}},
- draft(g){const z=g.z+sp(g);const a=A(g,z,0,20);arcC(a,3,15,-.55,.1);const dz=z+22;mkDraft(cx(dz),dz,6.5,48,g.world);lineC(cx(dz),14,dz,cx(dz),30,dz+4,5);reward(g,cx(dz),37,dz+6);
-  const z2=dz+36;const b=A(g,z2,0,33);arcC(b,4,15);const z3=z2+sp(g);A(g,z3,0,26);g.z=z3},
+ geyser(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,5);mkGeyser(a.x,a.z+1,3.4,i*1.15+g.r());if(i===1)rewardAt(g,gemArc(a,.08));g.z=z}},
+ fire(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*4,21);arcC(a,4);if(i<2){const zm=z+15;mkOrb('fire',cx(zm),2,zm,{t:'arc',dir:1,sp:.36+g.diff*.12,ph:g.r()});mkOrb('fire',cx(zm),2,zm+3,{t:'arc',dir:-1,sp:.36+g.diff*.12,ph:g.r()});if(i===0)rewardAt(g,gemArc(a,.85))}g.z=z}},
+ draft(g){const z=g.z+sp(g);const a=A(g,z,0,20);arcC(a,3,0,-.55,.1);const dz=z+22;mkDraft(cx(dz),dz,6.5,48,g.world);lineC(cx(dz),14,dz,cx(dz),30,dz+4,5);reward(g,cx(dz),20.5,dz+2.5);
+  const z2=dz+36;const b=A(g,z2,0,33);arcC(b,4);const z3=z2+sp(g);A(g,z3,0,26);g.z=z3},
  zip(g){const z=g.z+sp(g);const a=A(g,z,0,21);arcC(a,4);let za=z+21,ya=15,last=null;const n=g.diff>.45?2:1;
   for(let i=0;i<n;i++){const len=62+g.r()*12,zb=za+len,yb=ya-5-g.r()*2;last=mkZip(cx(za)+(g.r()-.5)*3,ya,za,cx(zb)+(g.r()-.5)*3,yb,zb,g.world);if(i===0&&n===2)lineC(cx(zb+6),yb,zb+6,cx(zb+14),yb+3,zb+14,3);za=zb+20;ya=yb+5}
   const zb=last.z;reward(g,cx(zb+13),last.b.y+1,zb+13);const z2=zb+26;arcC(A(g,z2,0,21),4);g.z=z2},
@@ -778,10 +785,10 @@ const SEG={
   if(g.diff>.3){const pz2=pz+46;mkBounce(cx(pz2),pz2,g.world);arc(pz2,5.9);lz=pz2}
   reward(g,cx(lz+24),22.5,lz+24);const z2=lz+40;arcC(A(g,z2,0,24),4);g.z=z2},
  wheel(g){const z=g.z+sp(g);const a=A(g,z,0,21);arcC(a,4);const wz=z+g.gap*.95;const R=6.5+g.diff*1.5,cy=18.5;const wv=(.75+g.diff*.55)*(g.r()<.5?1:-1);mkWheel(cx(wz),cy,wz,R,3,wv,g.world);
-  for(let k=0;k<8;k++){const an=k/8*TAU;mkCoin(cx(wz)+Math.cos(an)*(R+2.4),cy+Math.sin(an)*(R+2.4),wz)}let lz=wz;
+  for(let k=0;k<5;k++){const an=-Math.PI*(.25+k*.125);mkCoin(cx(wz)+Math.cos(an)*(R+2.4),cy+Math.sin(an)*(R+2.4),wz)}let lz=wz;
   if(g.diff>.4){const wz2=wz+g.gap*.95;mkWheel(cx(wz2),cy+1,wz2,R,3,-wv*1.1,g.world);lz=wz2}
-  reward(g,cx(lz+14),cy,lz+14);const z2=lz+sp(g);arcC(A(g,z2,0,22),4);g.z=z2},
- barrier(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*5,21);arcC(a,4);if(i<2){const zm=z+15;mkBarrier(zm,12,5,1+g.diff*.8,g.r()*6);if(i===0)reward(g,cx(zm)+9,6,zm)}g.z=z}},
+  rewardAt(g,gemArc({x:cx(lz),y:cy+R+(lz>wz?1:0),z:lz},.35));const z2=lz+sp(g);arcC(A(g,z2,0,22),4);g.z=z2},
+ barrier(g){for(let i=0;i<3;i++){const z=g.z+sp(g);const a=A(g,z,(g.r()-.5)*5,21);arcC(a,4);if(i<2){const zm=z+15;mkBarrier(zm,12,5,1+g.diff*.8,g.r()*6);if(i===0){const q=gemArc(a,Math.asin(Math.min(.95,15/ltOf(a))));rewardAt(g,q)}}g.z=z}},
 };
 function newGen(kind,st){const seed=st?st.seed:(kind==='demo'?4242:(Math.random()*1e9)|0);const g={kind,world:st?st.w:0,diff:st?st.diff:(kind==='demo'?.25:.05),r:rng(seed),dr:rng(seed^0x5bd1),
  near:1,gap:st?(st.tut?27:30+st.diff*2):(kind==='demo'?29:28),lastKind:'swing',swings:1,recent:[],z:0,count:0,segs:st?st.segs:Infinity,done:false,cpEvery:kind==='story'?4:6,lastCp:0,lastWs:0,gemAt:new Set(),gemIdx:0,gemNow:0,seq:st&&st.seq,prev:''};
@@ -854,7 +861,7 @@ function restoreSnap(){if(!snap||!lastCP)return;const lost=score-snap.score;({sc
  for(const o of objs.orbs)if(!o.alive&&o.ds>q){o.alive=1;if(o.gi>=0)glow.setSize(o.gi,9)}
  if(wildT>0){wildT=0;setWild(false)}if(lost>0)pop(`チェックポイントから再開（-${lost.toLocaleString()}）`,'#ffd0a0',22);updateHUD(true)}
 function findTarget(ext){let best=null,bs=1e9;const R=ext?46:P.gr?34:RANGE;
- if(!ext&&inp.lock&&inp.down&&objs.anchors.includes(inp.lock)){const a=inp.lock;const dx=a.x-P.p.x,dy=a.y-P.p.y,dz=a.z-P.p.z;if(dx*camFwd.x+dz*camFwd.z<-2)inp.lock=null;else if(Math.hypot(dx,dy,dz)<=R*1.1&&dy>-3)return a;else if(!P.gr)return null}const fx=camFwd.x,fz=camFwd.z,rx=camRight.x,rz=camRight.z;
+ if(!ext&&inp.lock&&inp.down&&objs.anchors.includes(inp.lock)){const a=inp.lock;const dx=a.x-P.p.x,dy=a.y-P.p.y,dz=a.z-P.p.z;if(dx*camFwd.x+dz*camFwd.z<-2)inp.lock=null;else if(Math.hypot(dx,dy,dz)<=R*1.1&&dy>-6)return a;else if(!P.gr)return null}const fx=camFwd.x,fz=camFwd.z,rx=camRight.x,rz=camRight.z;
  const vlat=P.v.x*rx+P.v.z*rz;const want=steer*9+vlat*.35;
  for(const a of objs.anchors){const dx=a.x-P.p.x,dy=a.y-P.p.y,dz=a.z-P.p.z;const along=dx*fx+dz*fz;if(along<(P.gr?1.5:5)||dy<(P.gr?-3:-6))continue;const d=Math.hypot(dx,dy,dz);if(d>R)continue;
   const lat=dx*rx+dz*rz;const s=d*.45+Math.abs(lat-want)*1.4-along*.15;if(s<bs){bs=s;best=a}}return best}
@@ -960,10 +967,10 @@ function physStep(h){const p=P.p,v=P.v;
  if(P.att&&p.y<1.3){p.y=1.3;if(v.y<0)v.y*=-.2;v.multiplyScalar(1-1.5*h);if(Math.random()<.5)parts.emit(p.x+(Math.random()-.5),.6,p.z,(Math.random()-.5)*6,5+Math.random()*5,(Math.random()-.5)*6,.6,.9,TH[curWorld].haz===1?0xffa030:0xffffff,20,1)}
  if(p.y<(TH[curWorld].haz===2?-1.5:.35)&&!P.gr)miss('fall')}
 
-function interact(dt){const p=P.p;if(P.dead||P.win)return;const m=mult();const wildOn=wildT>0;const mag=wildOn?7:1.9;
- for(const c of objs.coins){if(c.got)continue;const dz=c.z-p.z;if(dz<-3||dz>9)continue;const dx=c.x-p.x,dy=c.y-p.y;if(dx*dx+dy*dy+dz*dz<mag*mag){c.got=++gotSeq;pools.coin.hide(c.i);coins++;score+=10*m;
+function interact(dt){const p=P.p;if(P.dead||P.win)return;const m=mult();const wildOn=wildT>0;const mag=wildOn?7:2.2;
+ for(const c of objs.coins){if(c.got)continue;const dz=c.z-p.z;if(dz<-3||dz>9)continue;const dx=c.x-p.x,dy=(c.y-p.y)/1.6;if(dx*dx+dy*dy+dz*dz<mag*mag){c.got=++gotSeq;pools.coin.hide(c.i);coins++;score+=10*m;
   coinCombo=coinComboT>0?coinCombo+1:0;coinComboT=.5;SFX.coin();addWild(1);parts.burst(c.x,c.y,c.z,5,5,.35,.6,0xffe066,0,3)}}
- for(const g of objs.gems){if(g.got)continue;if(p.distanceTo(g.m.position)<2.4){g.got=++gotSeq;scene.remove(g.m);glow.setSize(g.gi,0);score+=500;if(g.idx<3)gemsGot[g.idx]=1;SFX.gem();buzz(20);pop('秘宝ゲット！ +500','#ff7ad9',34);flash(.25);parts.burst(g.x,g.y,g.z,30,12,.8,1,0xff7ad9,0,2);updateHUD(true)}}
+ for(const g of objs.gems){if(g.got)continue;const gx=g.x-p.x,gz=g.z-p.z,gy=g.y-p.y;if(gx*gx+gz*gz<11&&Math.abs(gy)<5.5){g.got=++gotSeq;scene.remove(g.m);glow.setSize(g.gi,0);score+=500;if(g.idx<3)gemsGot[g.idx]=1;SFX.gem();buzz(20);pop('秘宝ゲット！ +500','#ff7ad9',34);flash(.25);parts.burst(g.x,g.y,g.z,30,12,.8,1,0xff7ad9,0,2);updateHUD(true)}}
  for(const h of objs.hoops){h.cd=Math.max(0,h.cd-dt);if(h.cd>0)continue;const dx=p.x-h.x,dy=p.y-h.y,dz=p.z-h.z;if(dx*dx+dy*dy+dz*dz<3.6*3.6){h.cd=1;P.att=null;P.lock=.3;P.v.copy(h.dir).multiplyScalar(wildOn?50:44);endAir(false);
   score+=50*m;SFX.boost();buzz(30);shake=.35;pop('ブースト！','#35d0e8',36);parts.burst(h.x,h.y,h.z,30,16,.6,1,0x7ff7ff,0,2);if(tutStep===6){tutStep=0;showTut()}}}
  for(const o of objs.orbs){if(!o.alive)continue;const rr=o.r*(o.kind==='spike'?1.35:1)+PR*.7;const dx=o.x-p.x,dy=o.y-p.y,dz=o.z-p.z;if(dx*dx+dy*dy+dz*dz<rr*rr){
