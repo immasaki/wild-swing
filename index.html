@@ -671,7 +671,7 @@ const glow=new Glow(1400), parts=new Parts(1600);
 
 /* ================= HERO SCULPT CACHE ================= */
 // Gao is sculpted from distance fields on first launch; the finished meshes are kept in IndexedDB so later launches start instantly.
-const HVER='gao-4';
+const HVER='gao-5';
 function heroDB(){return new Promise(res=>{try{const r=indexedDB.open('wildswing3d',1);r.onupgradeneeded=()=>r.result.createObjectStore('c');r.onsuccess=()=>res(r.result);r.onerror=()=>res(null);r.onblocked=()=>res(null)}catch(e){res(null)}})}
 async function heroCacheLoad(){try{const db=await Promise.race([heroDB(),new Promise(r=>setTimeout(()=>r(null),1200))]);if(!db)return null;
   return await new Promise(res=>{try{const q=db.transaction('c','readonly').objectStore('c').get(HVER);q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null)}catch(e){res(null)}})}catch(e){return null}}
@@ -746,16 +746,16 @@ const hero=(()=>{
  float vn3(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(mix(mix(hh3(i),hh3(i+vec3(1,0,0)),f.x),mix(hh3(i+vec3(0,1,0)),hh3(i+vec3(1,1,0)),f.x),f.y),mix(mix(hh3(i+vec3(0,0,1)),hh3(i+vec3(1,0,1)),f.x),mix(hh3(i+vec3(0,1,1)),hh3(i+vec3(1,1,1)),f.x),f.y),f.z);}
  vec3 pnA(vec3 sp,vec3 n,vec2 dh,float fd){vec3 sx=dFdx(sp),sy=dFdy(sp),r1=cross(sy,n),r2=cross(n,sx);float det=dot(sx,r1)*fd;vec3 g=sign(det)*(dh.x*r1+dh.y*r2);return normalize(abs(det)*n-g);}`;
  // Shared hero shading: wrap-lit "subsurface" warmth, a rim light so Gao reads against any sky, optional procedural detail per material
- const heroT={value:0};
+ const heroT={value:0},heroFill={value:.16};
  function heroMat(o,opt={}){const m=new (opt.phys?T3.MeshPhysicalMaterial:T3.MeshStandardMaterial)(o);m.envMapIntensity=opt.env??.6;
   const rim=opt.rim||[1,.8,.6],rs=opt.rs??.45,sss=opt.sss||[0,0,0];
-  m.onBeforeCompile=sh=>{sh.uniforms.rimC={value:new T3.Color(...rim)};sh.uniforms.rimS={value:rs};sh.uniforms.sssC={value:new T3.Color(...sss)};sh.uniforms.glow={value:0};sh.uniforms.uT=heroT;m.userData.sh=sh;
+  m.onBeforeCompile=sh=>{sh.uniforms.rimC={value:new T3.Color(...rim)};sh.uniforms.rimS={value:rs};sh.uniforms.sssC={value:new T3.Color(...sss)};sh.uniforms.glow={value:0};sh.uniforms.uT=heroT;sh.uniforms.fillK=heroFill;m.userData.sh=sh;
    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uT;varying vec3 vOp;'+(opt.aux?'attribute vec4 aux;varying vec4 vAux;':''))
     .replace('#include <begin_vertex>','#include <begin_vertex>\nvOp=position;'+(opt.aux?'vAux=aux;':'')+(opt.vtx||''));
-   sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 rimC,sssC;uniform float rimS,glow;varying vec3 vOp;'+(opt.aux?'varying vec4 vAux;':'')+GLN+(opt.fdecl||''))
+   sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 rimC,sssC;uniform float rimS,glow,fillK;varying vec3 vOp;'+(opt.aux?'varying vec4 vAux;':'')+GLN+(opt.fdecl||''))
     .replace('#include <color_fragment>','#include <color_fragment>\n'+(opt.frag||''))
     .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n'+(opt.nrm||''))
-    .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n{vec3 V=normalize(vViewPosition);float ndv=clamp(dot(normal,V),0.,1.);float rimF=pow(1.-ndv,3.);totalEmissiveRadiance+=rimC*rimF*rimS*diffuseColor.rgb+sssC*diffuseColor.rgb*(.35+.65*pow(1.-ndv,1.5));}'+(opt.emi||''))};
+    .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n{vec3 V=normalize(vViewPosition);float ndv=clamp(dot(normal,V),0.,1.);float rimF=pow(1.-ndv,3.);totalEmissiveRadiance+=rimC*rimF*rimS*diffuseColor.rgb+sssC*diffuseColor.rgb*(.35+.65*pow(1.-ndv,1.5))+diffuseColor.rgb*fillK*vec3(1.,.93,.85)*(.25+.75*ndv*ndv);}'+(opt.emi||''))};
   m.customProgramCacheKey=()=>'hero'+(opt.key||'');return m}
 
  // ---------- skeleton (same joints the animation code drives) ----------
@@ -856,7 +856,12 @@ const hero=(()=>{
    float l1=1.-smoothstep(.007,.007+aa,abs(v+.185)),l2=1.-smoothstep(.005,.005+aa,abs(v+.34));float fu=fract(u*10.);
    float tri=smoothstep(-.2-.085*(1.-2.*abs(fu-.5))-aa,-.2-.085*(1.-2.*abs(fu-.5)),v)*step(v,-.19);
    float dots=1.-smoothstep(.011,.011+aa,length(vec2((fract(u*10.+.5)-.5)*.075,v+.312)));return clamp(l1+l2+tri+dots,0.,1.)*smoothstep(.6,1.,a.w);}`,
-  frag:`{float t=tat(vAux);diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.28,.2,.18),t*.92);}`,
+  frag:`{float t=tat(vAux);
+   if(vOp.z<-.12&&abs(vOp.x)<.3){vec2 q=vec2(vOp.x,(vOp.y-.64)*1.08);float r=length(q),an=atan(q.x,q.y),aa=.004;float k=abs(fract(an/6.2831853*9.+.5)-.5)*2.;
+    float ray=smoothstep(.085-aa,.085,r)*(1.-smoothstep(.085+.13*(1.-k)*(1.-k)-aa,.085+.13*(1.-k)*(1.-k),r));float ring=1.-smoothstep(.009,.009+aa,abs(r-.062));float dot0=1.-smoothstep(.028,.028+aa,r);
+    float fl=0.;{vec2 f=vec2(abs(q.x),q.y+.21);fl=(1.-smoothstep(.0,aa,abs(f.x-.04*sin(f.y*20.))-.012*(1.-f.y*4.)))*step(0.,f.y)*step(f.y,.2);}
+    t=max(t,clamp(ray+ring+dot0+fl*0.,0.,1.)*smoothstep(-.12,-.18,vOp.z));}
+   diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.28,.2,.18),t*.92);}`,
   nrm:`{float n1=vn3(vOp*140.),n2=vn3(vOp*38.);vec2 dh=vec2(dFdx(n1*.00022+n2*.0006),dFdy(n1*.00022+n2*.0006));normal=pnA(-vViewPosition,normal,dh,faceDirection);}`};
  const skin=heroMat({color:0xffffff,vertexColors:true,roughness:.55,metalness:0},skinOpt);
  const skinRigid=heroMat({color:0xffffff,vertexColors:true,roughness:.52,metalness:0},Object.assign({},skinOpt,{aux:false,key:'skinR',fdecl:'',frag:''}));
@@ -864,7 +869,10 @@ const hero=(()=>{
   fdecl:`vec3 pelt(vec3 p){float n=vn3(p*6.)*.7+vn3(p*17.)*.3;float s=sin(p.y*17.+n*1.7+sin(p.x*4.)*1.1+abs(p.x)*4.);float side=smoothstep(.04,.36,abs(p.x)+.12*n);
    float st=smoothstep(.62,.74,s-(1.-side)*.8+.1*vn3(p*31.));
    vec3 base=mix(vec3(.93,.42,.07),vec3(.99,.6,.18),vn3(p*9.)*.8);base=mix(base,vec3(.98,.84,.62),smoothstep(.62,.95,vn3(p*2.5+7.))*.25);return pow(mix(base,vec3(.1,.05,.03),st),vec3(2.2));}`,
-  frag:cape?``:`diffuseColor.rgb=pelt(vOp*vec3(1.,1.,1.))*(.55+.45*vColor.r);`,
+  frag:cape?``:`{vec3 p=vOp;float n=vn3(p*7.)*.7+vn3(p*19.)*.3;float an=atan(p.x,p.z+.02);
+   float s=sin(an*8.+p.y*5.+n*1.6+sin(p.y*9.)*.35);float w=.16+.1*vn3(p*4.+3.);float st=smoothstep(1.-w,1.-w+.06,s)*smoothstep(-.62,-.1,p.y*1.2+.1*n)+smoothstep(.72,.8,sin(an*8.+p.y*5.+2.1+n*1.4))*.0;
+   vec3 base=mix(vec3(.93,.42,.07),vec3(.99,.6,.18),vn3(p*9.)*.8);base=mix(base,vec3(.98,.84,.62),smoothstep(.62,.95,vn3(p*2.5+7.))*.22);
+   diffuseColor.rgb=pow(mix(base,vec3(.1,.05,.03),st),vec3(2.2))*(.55+.45*vColor.r);}`,
   nrm:`{float f=vn3(vOp*vec3(60.,18.,60.))*.6+vn3(vOp*150.)*.4;vec2 dh=vec2(dFdx(f),dFdy(f))*.006;normal=pnA(-vViewPosition,normal,dh,faceDirection);}`});
  const shortsM=heroMat({color:0xffffff,vertexColors:true,roughness:.9,sheen:.5,sheenRoughness:.5,sheenColor:new T3.Color(1,.55,.2)},Object.assign(peltOpt('shorts'),{phys:true}));
  const bone=heroMat({color:0xf3e6c8,roughness:.32,metalness:0,clearcoat:.4},{phys:true,rim:[1,.95,.85],rs:.3,sss:[.18,.14,.08],key:'bone'});
@@ -937,16 +945,17 @@ const hero=(()=>{
  // ---------- flame mane ----------
  const hairM=heroMat({vertexColors:true,roughness:.42,metalness:0,emissive:0xffffff,emissiveIntensity:.35},{rim:[1,.7,.3],rs:.5,sss:[.3,.08,0],env:.5,key:'hair',
   // flames never sit still: the further from the skull, the more the tongues sway and lick upward
+  nrm:`{float f=sin(atan(vOp.x,vOp.z+.03)*36.+vOp.y*2.5)*.6+vn3(vOp*vec3(40.,8.,40.))*.4;vec2 dh=vec2(dFdx(f),dFdy(f))*.0028;normal=pnA(-vViewPosition,normal,dh,faceDirection);}`,
   vtx:`{float hg=max(0.,length(position-vec3(0.,.05,-.03))-.48);transformed+=vec3(sin(uT*6.+position.y*5.+position.x*3.),.6*sin(uT*7.3+position.z*4.+position.x*2.),cos(uT*5.2+position.y*4.+position.z*3.))*.04*hg;}`,
   emi:`totalEmissiveRadiance+=diffuseColor.rgb*diffuseColor.rgb*diffuseColor.g*emissive.r*.85-emissive;`});
  const HC=[[.5,.08,.02],[.86,.2,.03],[1,.45,.06],[1,.68,.16],[1,.9,.5]].map(lin);
  const hcol=t=>{const x=Math.min(3.999,t*4),i=x|0,f=x-i;return HC[i].map((c,k)=>c+(HC[i+1][k]-c)*f)};
- function clump(pts,r0,flat=.5,segs=18,rad=10,twist=0,cm=1){const cv=new T3.CatmullRomCurve3(pts.map(p=>new V3(...p)),false,'centripetal');const fr=cv.computeFrenetFrames(segs,false);
+ function clump(pts,r0,flat=.5,segs=18,rad=10,twist=0,cm=1,ge=.85,tin=0){const cv=new T3.CatmullRomCurve3(pts.map(p=>new V3(...p)),false,'centripetal');const fr=cv.computeFrenetFrames(segs,false);
   const pos=[],col=[],idx=[];const up=new V3(),side=new V3(),T=new V3();
   for(let i=0;i<=segs;i++){const t=i/segs,P=cv.getPointAt(t);cv.getTangentAt(t,T);
    // width axis = perpendicular to the strand and to the head centre direction, so clumps lie flat like locks of hair
    side.copy(P).normalize().cross(T).normalize();up.crossVectors(T,side).normalize();
-   const r=r0*(t<.18?.75+t/.18*.25:Math.pow((1-t)/.82,1.15))+.0015,c=hcol(Math.pow(t,.85)*cm);
+   const r=r0*(t<.18?.75+t/.18*.25:Math.pow((1-t)/.82,1.15))*(tin?Math.min(1,Math.pow(t/tin,.7)):1)+.0015,c=hcol(Math.pow(t,ge)*cm);
    for(let j=0;j<=rad;j++){const a=j/rad*TAU+twist*t;const cw=Math.cos(a)*r,ch=Math.sin(a)*r*flat;pos.push(P.x+side.x*cw+up.x*ch,P.y+side.y*cw+up.y*ch,P.z+side.z*cw+up.z*ch);col.push(...c)}}
   for(let i=0;i<segs;i++)for(let j=0;j<rad;j++){const a=i*(rad+1)+j,b=a+rad+1;idx.push(a,b,a+1,b,b+1,a+1)}
   const g=new T3.BufferGeometry();g.setAttribute('position',new T3.Float32BufferAttribute(pos,3));g.setAttribute('color',new T3.Float32BufferAttribute(col,3));g.setIndex(idx);g.computeVertexNormals();return g}
@@ -967,12 +976,6 @@ const hero=(()=>{
    rec.push(a.x,a.y,a.z,ax.x,ax.y,ax.z,w.x,w.y,w.z,t.x,t.y,t.z,L,r0,r1)}
   const c=p0.clone().add(p1).add(p2).multiplyScalar(1/3);const R=Math.max(c.distanceTo(p0),c.distanceTo(p2))+rb+.05;const l1=p0.distanceTo(p1),l2=p1.distanceTo(p2);
   rec.push(c.x,c.y,c.z,R,l1/(l1+l2),flat);SPK.push(rec)};
- // the back of the mane is a torch: layered tongues that rise up and lean back, flaring out at the sides
- for(let k=0;k<6;k++){const u=k/5-.5;spike(Math.PI+u*2.2,.78,1.12-Math.abs(u)*.25,.19,1.2,.65,.35*u,.12)}
- for(let k=0;k<7;k++){const u=k/6-.5;spike(Math.PI+u*3.,.4,1.0-Math.abs(u)*.22,.2,1.0,.72,.6*u,.25)}
- for(let k=0;k<5;k++){const u=k/4-.5;spike(Math.PI+u*2.3,.02,.78-Math.abs(u)*.1,.18,.65,.8,.55*u,.45)}
- for(const s of [-1,1])for(const [el,l] of [[.5,.8],[.15,.62]])spike(s*(Math.PI/2+.35),el,l,.15,.95,.55,.55)
- for(let k=0;k<4;k++){const u=k/3-.5;spike(Math.PI+u*1.5,-.32,.5,.15,.5,.8,.5*u,.5)}
  // front of the mane (crown, top and bangs): tapered flame locks, which read best face-on and in the icon
  {const locks=[];
   for(let k=0;k<7;k++){const u=(k/6-.5);locks.push({az:u*1.5,el:1.05-Math.abs(u)*.4,len:.95-Math.abs(u)*.35,r:.13,flat:.45,up:1.25,back:.8})}
@@ -986,6 +989,25 @@ const hero=(()=>{
    const d2=dir.clone().addScaledVector(upv,.35).addScaledVector(back,.25).normalize();
    const p3=p2.clone().addScaledVector(d2,len*.3).add(new V3(-wob*1.4,0,0)),p4=p3.clone().addScaledVector(d2,len*.22).add(new V3(wob*.8,.06*len,-.04*len));
    add(clump([[p0.x,p0.y,p0.z],[p1.x,p1.y,p1.z],[p2.x,p2.y,p2.z],[p3.x,p3.y,p3.z],[p4.x,p4.y,p4.z]],L.r*(.9+hr()*.2),L.flat,20,10,(hr()-.5)*1.2),hairM,hair)}}
+ // back of the mane: tall layered flame tongues that leave the skull, sweep back, then lick straight up
+ function tongue(az,el,len,r,spread,curl,cm=1){const dx=Math.sin(az)*Math.cos(el),dy=Math.sin(el),dz=Math.cos(az)*Math.cos(el);const n=new V3(dx,dy,dz);
+  const out=new V3(dx,0,dz).normalize(),up=new V3(0,1,0),bk=new V3(0,0,-1);const p0=scalp(dx,dy,dz).multiplyScalar(.97);
+  const p1=p0.clone().addScaledVector(n,.1).addScaledVector(out,spread*.04);
+  const p2=p1.clone().addScaledVector(n.clone().multiplyScalar(.45).addScaledVector(bk,.55).addScaledVector(up,.3).addScaledVector(out,spread*.4).normalize(),len*.26);
+  const p3=p2.clone().addScaledVector(up.clone().addScaledVector(bk,.32).addScaledVector(out,spread*.3).normalize(),len*.32);
+  const p4=p3.clone().addScaledVector(up.clone().addScaledVector(bk,.08-curl).addScaledVector(out,spread*.14).normalize(),len*.26);
+  const p5=p4.clone().addScaledVector(up.clone().multiplyScalar(.8).addScaledVector(bk,-curl*1.6).addScaledVector(out,spread*.05).normalize(),len*.16);
+  add(clump([p0,p1,p2,p3,p4,p5].map(p=>[p.x,p.y,p.z]),r,.36,26,12,(hr()-.5)*.5,cm),hairM,hair)}
+ // swept-up locks: they start low on the back of the skull, hug it on the way up (so the back of the head is all hair), then leave it and rise as flames
+ function sweep(az,e0,e1,rise,r,spread,curl,cm=1,lift=1){const pts=[];const at=e=>{const dx=Math.sin(az)*Math.cos(e),dy=Math.sin(e),dz=Math.cos(az)*Math.cos(e);return scalp(dx,dy,dz).addScaledVector(new V3(dx,dy,dz),lift*(.035+.07*Math.max(0,(e-e0)/(e1-e0+1e-3))))};
+  for(let k=0;k<4;k++)pts.push(at(e0+(e1-e0)*k/3));const top=pts[3],n=top.clone().normalize(),out=new V3(Math.sin(az),0,Math.cos(az)).normalize(),up=new V3(0,1,0),bk=new V3(0,0,-1);
+  const q1=top.clone().addScaledVector(n.clone().multiplyScalar(.5).add(up).addScaledVector(bk,.35).addScaledVector(out,spread*.25).normalize(),rise*.36);
+  const q2=q1.clone().addScaledVector(up.clone().addScaledVector(bk,.12-curl*.5).addScaledVector(out,spread*.14).normalize(),rise*.34);
+  const q3=q2.clone().addScaledVector(up.clone().multiplyScalar(.8).addScaledVector(bk,-curl*1.4).addScaledVector(out,spread*.05).normalize(),rise*.3);
+  pts.push(q1,q2,q3);add(clump(pts.map(p=>[p.x,p.y,p.z]),r,.46,30,12,(hr()-.5)*.35,cm,1.7,.14),hairM,hair)}
+ for(const [e0,e1,n,span,rise,r,off] of [[-.5,.72,7,3.0,.62,.17,0],[-.05,.95,6,2.4,.86,.19,.5],[.4,1.18,4,1.5,.98,.19,0]])
+  for(let k=0;k<n;k++){const u=(k+(k<n-1?off:0))/(n-1)-.5;sweep(Math.PI+u*span,e0+(hr()-.5)*.05-(k%2)*.07,e1+(hr()-.5)*.08,rise*(1-Math.abs(u)*.45)*(.9+hr()*.2),r*(1-Math.abs(u)*.2),u*1.6,.06+hr()*.12,.97,k%2?1.35:1)}
+ for(const s2 of [-1,1])for(const [el,len] of [[.5,.7],[.12,.55]])tongue(s2*(Math.PI/2+.45),el,len,.15,s2*.8,.1,.95);
  const NS=SPK.length,STR=36,ST=new Float64Array(NS*STR);SPK.forEach((r,i)=>ST.set(r,i*STR));
  const segD=(x,y,z,o,Kf)=>{const qx=x-ST[o],qy=y-ST[o+1],qz=z-ST[o+2];const X=qx*ST[o+3]+qy*ST[o+4]+qz*ST[o+5],Y=qx*ST[o+6]+qy*ST[o+7]+qz*ST[o+8],Z=(qx*ST[o+9]+qy*ST[o+10]+qz*ST[o+11])*Kf;
   return rcone(X,Y,Z,0,0,0,ST[o+12],0,0,ST[o+13],ST[o+14])/Kf};
@@ -1047,7 +1069,7 @@ const hero=(()=>{
    diffuseColor.rgb=gl_FrontFacing?c*.4+vec3(.05,.03,.015):c;}`}));
  capeM.onBeforeCompile=(f=>sh=>{f(sh);sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 vUv2;').replace('#include <begin_vertex>','#include <begin_vertex>\nvUv2=uv;');
   sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vUv2;')})(capeM.onBeforeCompile);
- const cape=new T3.Mesh(capeGeo,capeM);cape.castShadow=true;cape.frustumCulled=false;const capeP=new T3.Group();capeP.position.set(0,.98,-.3);capeP.add(cape);body.add(capeP);
+ const cape=new T3.Mesh(capeGeo,capeM);cape.visible=false;cape.castShadow=true;cape.frustumCulled=false;const capeP=new T3.Group();capeP.position.set(0,.98,-.3);capeP.add(cape);body.add(capeP);
  // ---------- tiger tail: a furred, striped tube rebuilt every frame so it sways and streams in the wind ----------
  const TS=26,TR=10,tailG=new T3.BufferGeometry(),tPos=new Float32Array((TS+1)*(TR+1)*3),tCol=new Float32Array((TS+1)*(TR+1)*3),tIdx=[];
  for(let i=0;i<=TS;i++){const t=i/TS;const stripe=(t>.08&&(t*7.5)%1<.34)||t>.9;const c=stripe?lin([.12,.06,.03]):t<.1?lin([.9,.5,.14]):lin([.97,.52,.12]);for(let j=0;j<=TR;j++){const o=(i*(TR+1)+j)*3;tCol[o]=c[0];tCol[o+1]=c[1];tCol[o+2]=c[2]}}
@@ -1058,10 +1080,12 @@ const hero=(()=>{
  const tail=new T3.Mesh(tailG,tailM);tail.castShadow=true;tail.frustumCulled=false;body.add(tail);
  const TA=onSurf(shortsF,0,.02,0,0,0,-1,-.02);const tp=[],tb=new V3(),tn=new V3(),tt=new V3();for(let i=0;i<=TS;i++)tp.push(new V3());
  function tailUpdate(time,spd,air){const lift=Math.min(1,spd/28);
-  for(let i=0;i<=TS;i++){const s=i/TS,L=.95*s;const sw=Math.sin(time*3.1-s*2.6)*(.1+.1*s)*s;
-   tp[i].set(TA.x+sw,TA.y-L*(.62-.45*lift)+s*s*s*(.42+.2*lift)+Math.sin(time*2.3-s*3)*.03*s,TA.z-L*(.45+.45*lift)-s*s*.12)}
+  // S-curve: out and down from the pelt, then curling up; it wags slowly side to side and streams back with speed
+  const wag=Math.sin(time*1.15)*.85+Math.sin(time*2.9)*.15;
+  for(let i=0;i<=TS;i++){const s=i/TS,rip=Math.sin(time*3.4-s*3.2)*.07*s;
+   tp[i].set(TA.x+wag*(.3*Math.pow(s,1.4))+rip,TA.y-.66*s+(.66+.3*lift)*Math.pow(s,2.6)+Math.sin(time*2.3-s*3)*.03*s,TA.z-(.18+.55*lift)*s-.1*s*s)}
   for(let i=0;i<=TS;i++){const a=tp[Math.max(0,i-1)],b=tp[Math.min(TS,i+1)];tt.subVectors(b,a).normalize();tb.set(1,0,0).addScaledVector(tt,-tt.x).normalize();tn.crossVectors(tt,tb);
-   const s=i/TS,r=(.052-.03*s)*(s>.9?1+(s-.9)*4:1)*(i===TS?.2:1);
+   const s=i/TS,r=(.074-.036*s)*(s>.86?1+(s-.86)*3.2:1)*(i===TS?.25:1);
    for(let j=0;j<=TR;j++){const an=j/TR*TAU,cx=Math.cos(an)*r,cy=Math.sin(an)*r,o=(i*(TR+1)+j)*3;tPos[o]=tp[i].x+tb.x*cx+tn.x*cy;tPos[o+1]=tp[i].y+tb.y*cx+tn.y*cy;tPos[o+2]=tp[i].z+tb.z*cx+tn.z*cy}}
   tailG.attributes.position.needsUpdate=true;tailG.computeVertexNormals()}
  tailUpdate(0,0,false);
@@ -1071,11 +1095,18 @@ const hero=(()=>{
    pa.setXYZ(i,x*(1+t*.16),y+t*up,x*x*.75*(1-t*.5)-Math.pow(t,1.2)*fl+.03*Math.sin(x*17+1.3)*t*calm+Math.sin(time*11+t*5+x*3)*.07*t*(.4+spd*.03))}
   pa.needsUpdate=true;if((capeN++&3)===0)capeGeo.computeVertexNormals()}
  capeUpdate(0,0);
- // fur mantle over the shoulders where the cape hangs
- {const fm=heroMat({color:0xffffff,vertexColors:true,roughness:.9,sheen:.5,sheenRoughness:.5,sheenColor:new T3.Color(1,.55,.2)},Object.assign(peltOpt('mantle'),{phys:true}));
-  const f=(x,y,z)=>{const r=Math.hypot(x/1.28,z+.05)-.29;return Math.max(Math.hypot(r,(y-.95)*1.5)-.06-.01*Math.sin(Math.atan2(x,z+.05)*16),z+.14+.3*Math.abs(x))};
-  const M=cache('mantle',()=>pack(SDF.mesh(f,[-.5,.8,-.46],[.5,1.06,.36],.016)));add(G(M,{color:[new Float32Array(M.P.length).fill(.9),3]}),fm,body)}
-
+ // tiger-pelt sash: over the left shoulder, across the back and chest to the right hip, with a ragged furred edge
+ const SD=new V3(-.5,-.86,0).normalize(),SN=new V3(.86,-.5,0).normalize(),SO=new V3(.3,.95,0);
+ function sashF(x,y,z){parts(x,y,z);const qx=x-SO.x,qy=y-SO.y,al=qx*SD.x+qy*SD.y,ac=qx*SN.x+qy*SN.y;
+  const jag=.012*Math.sin(al*70+z*20)+.008*Math.sin(al*131);const band=Math.abs(ac)-(.1+.018*Math.sin(al*9)+jag);
+  let d=smin(gd[0],gd[1],.07)-.036;d=Math.max(d,band);return Math.max(d,-(al+.08),al-1.08)}
+ const SH=cache('sash',()=>{const m=SDF.mesh(sashF,[-.6,-.25,-.45],[.75,1.12,.45],.018);const {si,sw}=weights(m.P);return pack(m,{col:colorize(sashF,m,(x,y,z,a)=>[.4+.6*a,0,0]),si,sw})});
+ const sashM=heroMat({color:0xffffff,vertexColors:true,roughness:.9,sheen:.55,sheenRoughness:.45,sheenColor:new T3.Color(1,.6,.25)},Object.assign(peltOpt('sash'),{phys:true,
+  frag:`{vec2 d=normalize(vec2(-.5,-.86)),nn=vec2(d.y*-1.,d.x);vec2 q=vOp.xy-vec2(.3,.95);float al=dot(q,d),ac=dot(q,vec2(.86,-.5));
+   diffuseColor.rgb=pelt(vec3(ac*3.2,al*1.15,vOp.z))*(.55+.45*vColor.r);float edge=smoothstep(.07,.1,abs(ac));diffuseColor.rgb=mix(diffuseColor.rgb,pow(vec3(.99,.86,.66),vec3(2.2))*(.6+.4*vColor.r),edge*.8);}`}));
+ const sashMesh=add(G(SH,{color:[SH.col,3],skinIndex:[SH.si,4,T3.Uint16BufferAttribute],skinWeight:[SH.sw,4]}),sashM,body,true);sashMesh.bind(skeleton);
+ // bone toggle where the sash meets at the hip
+ {const k=add(new T3.TorusGeometry(.045,.016,10,24),bone,body);k.position.copy(onSurf(sashF,-.22,.2,0,0,0,1,.02));k.rotation.set(.2,.3,0)}
  lap('props');
  for(const m of all)m.receiveShadow=false;
  root.scale.setScalar(.95);
